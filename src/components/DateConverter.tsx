@@ -1,10 +1,10 @@
-
 import React, { useState, useCallback, useEffect } from 'react';
 import { Copy, Calendar, Clock, Zap, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
+import { parse } from 'date-fns';
 
 type ConversionResult = {
   id: string;
@@ -82,13 +82,41 @@ const DateConverter = () => {
         processedInput = processedInput.replace(tzMatch[0], '').trim();
       }
       const currentYear = new Date().getFullYear();
-      if (!processedInput.includes(currentYear.toString())) {
+      if (!/\b\d{4}\b/.test(processedInput)) {
         processedInput += ` ${currentYear}`;
       }
-      const date = new Date(processedInput);
+
+      let date: Date | null = null;
+      // Try common formats with date-fns
+      const formats = [
+        "EEE MMM d yyyy h:mmaaa", // e.g. "Mon Jun 16 2025 9:00AM"
+        "EEE MMM d yyyy haaa",    // e.g. "Mon Jun 16 2025 9AM"
+        "EEE MMM d yyyy H:mm",    // e.g. "Mon Jun 16 2025 9:00"
+        "EEE MMM d yyyy H",       // e.g. "Mon Jun 16 2025 9"
+        "MMM d yyyy h:mmaaa",     // e.g. "Jun 16 2025 9:00AM"
+        "MMM d yyyy haaa",
+        "MMM d yyyy H:mm",
+        "MMM d yyyy H",
+        "EEE MMM d yyyy",         // e.g. "Mon Jun 16 2025"
+        "MMM d yyyy"              // e.g. "Jun 16 2025"
+      ];
+
+      for (let fmt of formats) {
+        // Try with colon, else try with no colon (for 9AM)
+        try {
+          date = parse(processedInput, fmt, new Date());
+          if (!isNaN(date.getTime())) break;
+        } catch (e) {}
+      }
+      if (!date || isNaN(date.getTime())) {
+        // Fallback to native Date parser if all else fails
+        date = new Date(processedInput);
+      }
       if (isNaN(date.getTime())) {
         throw new Error('Invalid date format');
       }
+
+      // Apply timezone offset (still using the original logic)
       const tzOffsets: { [key: string]: number } = {
         'UTC': 0, 'GMT': 0, 'CET': 1, 'EST': -5, 'PST': -8,
         'JST': 9, 'AEST': 10, 'IST': 5.5, 'CST': -6, 'MST': -7
