@@ -220,6 +220,83 @@ const DateConverter = () => {
     });
   };
 
+  // --- TESTING UTILITY FOR DATE PARSER ---
+  // Only run in development mode
+  if (process.env.NODE_ENV !== "production") {
+    function runParseNaturalDateTests() {
+      const tests = [
+        {
+          input: "Monday June 16th at 9AM CET",
+          tz: "UTC",
+          expect: "2025-06-16T08:00:00.000Z", // 9AM CET is 8AM UTC
+        },
+        {
+          input: "8AM CET on Saturday June 14th",
+          tz: "UTC",
+          expect: "2025-06-14T07:00:00.000Z",
+        },
+        {
+          input: "December 25th 2024 at 3:30PM EST",
+          tz: "UTC",
+          expect: "2024-12-25T20:30:00.000Z", // 3:30PM EST = 8:30PM UTC
+        },
+        {
+          input: "Friday at 6PM UTC",
+          tz: "UTC",
+          // This test's output will vary depending on the current week's Friday.
+          expectPartial: "T18:00:00.000Z",
+        },
+        {
+          input: "randomstringthatfails",
+          tz: "UTC",
+          expectError: true,
+        },
+      ];
+
+      const currentYear = new Date().getFullYear();
+
+      console.group("parseNaturalDate Test Cases:");
+      tests.forEach((test) => {
+        // For tests without year, add year to input
+        let testInput = test.input.includes(currentYear.toString())
+          ? test.input
+          : test.input.replace(/(\d{1,2}(st|nd|rd|th)?)/, `$1 ${currentYear}`);
+        if (!testInput.match(/\b\d{4}\b/)) {
+          testInput += ` ${currentYear}`;
+        }
+        const result = parseNaturalDate(test.input, test.tz);
+        if (test.expectError) {
+          if (!result.success) {
+            console.log(`PASS: '${test.input}' produced error as expected.`);
+          } else {
+            console.error(`FAIL: '${test.input}' should fail but parsed`, result);
+          }
+        } else if (result.success) {
+          let parsed = result.utcDate.toISOString();
+          if (test.expect) {
+            if (parsed === test.expect) {
+              console.log(`PASS: '${test.input}' ➔ ${parsed}`);
+            } else {
+              console.error(`FAIL: '${test.input}' ➔ ${parsed} (expected ${test.expect})`);
+            }
+          } else if (test.expectPartial) {
+            if (parsed.includes(test.expectPartial)) {
+              console.log(`PASS (partial): '${test.input}' ➔ ${parsed}`);
+            } else {
+              console.error(`FAIL: '${test.input}' ➔ ${parsed} (expected to include ${test.expectPartial})`);
+            }
+          }
+        } else {
+          console.error(`FAIL: '${test.input}' could not be parsed. Error: ${result.error}`);
+        }
+      });
+      console.groupEnd();
+    }
+    // Run tests on every reload
+    runParseNaturalDateTests();
+  }
+  // --- END TESTING UTILITY ---
+
   return (
     <div className="min-h-screen bg-catppuccin-base p-4 flex items-center justify-center">
       <div className="w-full max-w-2xl">
