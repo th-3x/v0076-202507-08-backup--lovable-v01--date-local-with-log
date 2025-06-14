@@ -144,7 +144,7 @@ const DateConverter = () => {
             <Clock className="w-8 h-8 text-catppuccin-mauve" />
           </div>
           <p className="text-catppuccin-subtext1 font-pixel text-sm">
-            > Convert natural language dates to UTC timestamps
+            {'>'} Convert natural language dates to UTC timestamps
           </p>
         </div>
 
