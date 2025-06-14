@@ -55,77 +55,132 @@ const DateConverter = () => {
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
   }, [history]);
 
+  /**
+   * Utility to get next date that matches a given weekday (0=Sun ... 6=Sat)
+   * Used if input says "Monday ..." etc but date is not that weekday.
+   * */
+  function alignDateToNextWeekday(date: Date, weekday: number): Date {
+    const result = new Date(date);
+    const daysToAdd = (weekday + 7 - result.getDay()) % 7; // 0=Sun, 1=Mon...
+    result.setDate(result.getDate() + daysToAdd);
+    return result;
+  }
+
+  // Update parseNaturalDate to improve robustness
   const parseNaturalDate = (input: string, tz: string = 'UTC') => {
     try {
-      let processedInput = input.toLowerCase();
-      const weekdays = {
-        'monday': 'Mon', 'tuesday': 'Tue', 'wednesday': 'Wed', 
-        'thursday': 'Thu', 'friday': 'Fri', 'saturday': 'Sat', 'sunday': 'Sun'
+      let processedInput = input.trim();
+      let weekdayFound: string | undefined = undefined;
+      let weekdayNum: number | undefined = undefined;
+
+      const weekdays: { [key: string]: { abbr: string, num: number } } = {
+        'sunday':   { abbr: 'Sun', num: 0 },
+        'monday':   { abbr: 'Mon', num: 1 },
+        'tuesday':  { abbr: 'Tue', num: 2 },
+        'wednesday':{ abbr: 'Wed', num: 3 },
+        'thursday': { abbr: 'Thu', num: 4 },
+        'friday':   { abbr: 'Fri', num: 5 },
+        'saturday': { abbr: 'Sat', num: 6 },
       };
-      const months = {
+      const months: { [key: string]: string } = {
         'january': 'Jan', 'february': 'Feb', 'march': 'Mar', 'april': 'Apr',
         'may': 'May', 'june': 'Jun', 'july': 'Jul', 'august': 'Aug',
         'september': 'Sep', 'october': 'Oct', 'november': 'Nov', 'december': 'Dec'
       };
-      Object.entries(weekdays).forEach(([full, abbr]) => {
+
+      // Lowercase for uniformity
+      processedInput = processedInput.toLowerCase();
+
+      // Remove "at", "on"
+      processedInput = processedInput.replace(/\b(at|on)\b/g, " ");
+
+      // Replace months and weekdays with abbr
+      Object.entries(weekdays).forEach(([full, { abbr }]) => {
+        if (processedInput.includes(full)) {
+          weekdayFound = abbr;
+          weekdayNum = weekdays[full].num;
+        }
         processedInput = processedInput.replace(new RegExp(full, 'gi'), abbr);
       });
+
       Object.entries(months).forEach(([full, abbr]) => {
-        processedInput = processedInput.replace(new RegExp(full, 'gi'), abbr);
+        processedInput = processedInput.replace(new RegExp(full, "gi"), abbr);
       });
-      processedInput = processedInput.replace(/(\d+)(st|nd|rd|th)/g, '$1');
-      processedInput = processedInput.replace(/ at /g, ' ');
-      processedInput = processedInput.replace(/ on /g, ' ');
-      const tzMatch = processedInput.match(/(CET|EST|PST|GMT|JST|AEST|IST|CST|MST|UTC)/i);
-      const detectedTz = tzMatch ? tzMatch[1].toUpperCase() : tz;
+
+      // Remove ordinals ('16th', '1st', etc)
+      processedInput = processedInput.replace(/(\d+)(st|nd|rd|th)/gi, '$1');
+
+      // Remove extra spaces
+      processedInput = processedInput.replace(/\s+/g, ' ').trim();
+
+      // Extract and trim timezone if present
+      const tzRegex = /\b(CET|EST|PST|GMT|JST|AEST|IST|CST|MST|UTC)\b/i;
+      let detectedTz = tz;
+      const tzMatch = processedInput.match(tzRegex);
       if (tzMatch) {
-        processedInput = processedInput.replace(tzMatch[0], '').trim();
+        detectedTz = tzMatch[1].toUpperCase();
+        processedInput = processedInput.replace(tzMatch[0], "").trim();
       }
+
+      // Add current year if not present
       const currentYear = new Date().getFullYear();
       if (!/\b\d{4}\b/.test(processedInput)) {
         processedInput += ` ${currentYear}`;
       }
 
-      let date: Date | null = null;
-      // Try common formats with date-fns
+      // Try formats (most strict to loose)
       const formats = [
-        "EEE MMM d yyyy h:mmaaa", // e.g. "Mon Jun 16 2025 9:00AM"
-        "EEE MMM d yyyy haaa",    // e.g. "Mon Jun 16 2025 9AM"
-        "EEE MMM d yyyy H:mm",    // e.g. "Mon Jun 16 2025 9:00"
-        "EEE MMM d yyyy H",       // e.g. "Mon Jun 16 2025 9"
-        "MMM d yyyy h:mmaaa",     // e.g. "Jun 16 2025 9:00AM"
-        "MMM d yyyy haaa",
+        "EEE MMM d yyyy h:mmaaa", // Mon Jun 16 2025 9:00AM
+        "EEE MMM d yyyy haaa",    // Mon Jun 16 2025 9AM
+        "EEE MMM d yyyy H:mm",    // Mon Jun 16 2025 9:00
+        "EEE MMM d yyyy H",       // Mon Jun 16 2025 9
+        "MMM d yyyy h:mmaaa",     // Jun 16 2025 9:00AM
+        "MMM d yyyy haaa",        // Jun 16 2025 9AM
         "MMM d yyyy H:mm",
         "MMM d yyyy H",
-        "EEE MMM d yyyy",         // e.g. "Mon Jun 16 2025"
-        "MMM d yyyy"              // e.g. "Jun 16 2025"
+        "EEE MMM d yyyy",         // Mon Jun 16 2025
+        "MMM d yyyy"              // Jun 16 2025
       ];
-
+      let parsed: Date | null = null;
       for (let fmt of formats) {
-        // Try with colon, else try with no colon (for 9AM)
         try {
-          date = parse(processedInput, fmt, new Date());
-          if (!isNaN(date.getTime())) break;
-        } catch (e) {}
+          parsed = parse(processedInput, fmt, new Date());
+          if (parsed && !isNaN(parsed.getTime())) break;
+        } catch {}
       }
-      if (!date || isNaN(date.getTime())) {
-        // Fallback to native Date parser if all else fails
-        date = new Date(processedInput);
+      if (!parsed || isNaN(parsed.getTime())) {
+        // fallback: try native Date
+        parsed = new Date(processedInput);
       }
-      if (isNaN(date.getTime())) {
-        throw new Error('Invalid date format');
+      if (!parsed || isNaN(parsed.getTime())) {
+        return { success: false, error: "Invalid date format" };
       }
 
-      // Apply timezone offset (still using the original logic)
+      // If a weekday was specified and misaligned, align forward
+      if (weekdayNum !== undefined && parsed.getDay() !== weekdayNum) {
+        parsed = alignDateToNextWeekday(parsed, weekdayNum);
+      }
+
+      // Apply timezone offset
       const tzOffsets: { [key: string]: number } = {
         'UTC': 0, 'GMT': 0, 'CET': 1, 'EST': -5, 'PST': -8,
         'JST': 9, 'AEST': 10, 'IST': 5.5, 'CST': -6, 'MST': -7
       };
-      const offset = tzOffsets[detectedTz] || 0;
-      const utcDate = new Date(date.getTime() - (offset * 60 * 60 * 1000));
+      const offset = tzOffsets[detectedTz] ?? 0;
+      // Local time to UTC: subtract offset hours
+      const utcDate = new Date(parsed.getTime() - offset * 60 * 60 * 1000);
+
+      // Debug info for dev
+      if (process.env.NODE_ENV !== "production") {
+        console.log("[parseNaturalDate] processedInput:", processedInput);
+        console.log("[parseNaturalDate] original date (local):", parsed.toString());
+        console.log("[parseNaturalDate] timezone:", detectedTz, "offset:", offset);
+        console.log("[parseNaturalDate] aligned (if weekday), utcDate:", utcDate.toISOString());
+      }
+
       return {
         utcDate,
-        originalDate: date,
+        originalDate: parsed,
         timezone: detectedTz,
         success: true
       };
@@ -260,7 +315,7 @@ const DateConverter = () => {
         // For tests without year, add year to input
         let testInput = test.input.includes(currentYear.toString())
           ? test.input
-          : test.input.replace(/(\d{1,2}(st|nd|rd|th)?)/, `$1 ${currentYear}`);
+          : test.input.replace(/(\d+)(st|nd|rd|th)?/, `$1 ${currentYear}`);
         if (!testInput.match(/\b\d{4}\b/)) {
           testInput += ` ${currentYear}`;
         }
